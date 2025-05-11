@@ -2,26 +2,41 @@ package com.example.config;
 
 
 import com.example.entity.RestBean;
+import com.example.entity.vo.response.AuthorizeVO;
+import com.example.filter.JwtAutorizeFilter;
+import com.example.utils.JwtUtils;
+import jakarta.annotation.Resource;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 
 import java.io.IOException;
+import java.io.PrintWriter;
 
 @Configuration
 public class SecurityConfiguratior {
+
+    @Resource
+    JwtUtils utils;
+
+    @Resource
+    JwtAutorizeFilter jwtAutorizeFilter;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -39,30 +54,69 @@ public class SecurityConfiguratior {
                         .logoutUrl("/api/auth/logout")
                         .logoutSuccessHandler(this::onLogoutSuccess)
                 )
+                .exceptionHandling(conf ->conf
+                        .authenticationEntryPoint(this::onUnauthorized)
+                        .accessDeniedHandler(this::onAccessDeny)
+                )
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(conf ->conf
-                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-                )
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .addFilterBefore(jwtAutorizeFilter, UsernamePasswordAuthenticationFilter.class)
+
                 .build();
     }
 
+    //登录成功
     public void onAuthenticationSuccess(HttpServletRequest request,
                                         HttpServletResponse response,
-                                        Authentication authentication) throws IOException, ServletException {
+                                        Authentication authentication) throws IOException {
         response.setContentType("application/json;charset=utf-8");
-        response.getWriter().write(RestBean.success().asJsonString());
+        User user =(User) authentication.getPrincipal();
+        String token = utils.createJWT(user,1,"小明");
+        AuthorizeVO vo = new AuthorizeVO();
+        vo.setExpires(utils.expireTime());
+        vo.setRole("");
+        vo.setToken(token);
+        vo.setUsername("小明");
+        response.getWriter().write(RestBean.success(vo).asJsonString());
     }
 
+    //退出登录
+    public void onLogoutSuccess(HttpServletRequest request,
+                                HttpServletResponse response,
+                                Authentication authentication) throws IOException, ServletException {
+        response.setContentType("application/json;charset=utf-8");
+        PrintWriter writer = response.getWriter();
+        String authorization = request.getHeader("Authorization");
+        if(utils.invalidateJwt(authorization)) {
+            writer.write(RestBean.success().asJsonString());
+        }else {
+            writer.write(RestBean.failure(400,"退出登录失败").asJsonString());
+        }
+    }
+
+    //登入失败
     public void onAuthenticationFailure(HttpServletRequest request,
                                         HttpServletResponse response,
                                         AuthenticationException exception) throws IOException, ServletException {
         response.setContentType("application/json;charset=utf-8");
-        response.getWriter().write(RestBean.failure(401,exception.getMessage()).asJsonString());
+        response.getWriter().write(RestBean.unauthorized(exception.getMessage()).asJsonString());
     }
 
-    public void onLogoutSuccess(HttpServletRequest request,
-                                HttpServletResponse response,
-                                Authentication authentication) throws IOException, ServletException {
 
+    //角色登录成功但无权限去访问某些页面
+    public void onAccessDeny(HttpServletRequest request,
+                             HttpServletResponse response,
+                             AccessDeniedException exception) throws IOException {
+        response.setContentType("application/json;charset=utf-8");
+        response.getWriter().write(RestBean.forbidden(exception.getMessage()).asJsonString());
+    }
+
+    //角色没登录
+    public void onUnauthorized(HttpServletRequest request,
+                               HttpServletResponse response,
+                               AuthenticationException exception) throws IOException {
+        response.setContentType("application/json;charset=utf-8");
+        response.getWriter().write(RestBean.unauthorized(exception.getMessage()).asJsonString());
     }
 }
