@@ -1,6 +1,6 @@
 <script setup>
 import { User,Lock } from '@element-plus/icons-vue'
-import {reactive} from "vue";
+import {reactive ,ref} from "vue";
 import {login} from "@/net";
 
 const formRef = ref()
@@ -13,10 +13,10 @@ const form = reactive({
 
 const rule ={
   username: [
-    {required: ture, message: '请输入用户名'}
+    {required: true, message: '请输入用户名'}
   ],
   password: [
-    {required:ture, message: '请输入密码'}
+    {required: true, message: '请输入密码'}
   ]
 }
 
